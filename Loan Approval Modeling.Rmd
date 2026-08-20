@@ -1,0 +1,440 @@
+---
+title: "Predicting Loan Approval Odds"
+author: Emrah Akbas
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "Table of Contents"
+    code-fold: false
+    code-tools: false
+    code-link: true
+    embed-resources: true
+    grid:
+      sidebar-width: 250px
+      body-width: 850px
+      margin-width: 250px
+execute:
+  echo: true
+  warning: false
+  message: false
+date: "2026-08-18"
+---
+
+## Classification Models for Machine Learning:
+
+-   Logistic Regression
+-   Tree Model
+-   Naive Bayes
+-   SVMs
+-   Random Forest
+-   XGBoost
+
+> I will be analyzing a loan approval dataset to predict applicant outcomes. By using data visualization and testing different modeling methods, I will find the most accurate way to predict approvals and denials.
+
+![](C:/Users/151495/Desktop/Loan%20Aproval%20Modeling/Screenshot%202026-08-20%20082439.jpg)
+
+```{r}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(GGally)
+library(dplyr)
+```
+
+Data source : <https://www.kaggle.com/datasets/taweilo/loan-approval-classification-data>
+
+| Column | Description | Type |
+|:-----------------------|:-----------------------|:-----------------------|
+| **person_age** | Age of the person | Float |
+| **person_gender** | Gender of the person | Categorical |
+| **person_education** | Highest education level | Categorical |
+| **person_income** | Annual income | Float |
+| **person_emp_exp** | Years of employment experience | Integer |
+| **person_home_ownership** | Home ownership status (e.g., rent, own, mortgage) | Categorical |
+| **loan_amnt** | Loan amount requested | Float |
+| **loan_intent** | Purpose of the loan | Categorical |
+| **loan_int_rate** | Loan interest rate | Float |
+| **loan_percent_income** | Loan amount as a percentage of annual income | Float |
+| **cb_person_cred_hist_length** | Length of credit history in years | Float |
+| **credit_score** | Credit score of the person | Integer |
+| **previous_loan_defaults_on_file** | Indicator of previous loan defaults | Categorical |
+| **loan_status** *(target)* | Loan approval status: 1 = approved; 0 = rejected | Integer |
+
+```{r}
+loan <- read_csv("C:/Users/151495/Desktop/Loan Aproval Modeling/loan_data.csv")
+str(loan)
+```
+## Exploratory Data Analysis
+
+> Several categorical variables are currently formatted as characters. I will convert character (chr) variables into factors. This formatting change ensures they work correctly in our models and calculations.
+
+```{r}
+loan$person_gender <- as.factor(loan$person_gender)
+loan$person_education <- as.factor(loan$person_education)
+loan$person_home_ownership <- as.factor(loan$person_home_ownership)
+loan$loan_intent <- as.factor(loan$loan_intent)
+loan$previous_loan_defaults_on_file <- as.factor(loan$previous_loan_defaults_on_file)
+loan$loan_status <- as.factor(loan$loan_status)
+```
+
+```{r, message=FALSE}
+summary(loan)
+```
+
+```{r}
+over100 <- loan %>% 
+  filter(person_age > 100)
+over100
+```
+
+> Our data has some unrealistic values, since this is modeling experiment I will keep the extreme values for now.
+
+```{r, fig.width=10, fig.height=8, message=FALSE, warning=FALSE}
+ggpairs(loan, 
+        columns = c("person_age", 
+                    "person_gender", 
+                    "person_education"),
+                    aes(color=loan_status, alpha=0.4))
+```
+
+```{r, message=FALSE}
+ggpairs(loan, 
+        columns = c("person_income", 
+                    "person_emp_exp", 
+                    "person_home_ownership"),
+                    aes(color=loan_status, alpha=0.4))
+```
+
+```{r, fig.width=10, fig.height=10}
+library(corrplot)
+matrix <- cor(loan[sapply(loan, is.numeric)])
+corrplot(matrix, method = "color",       
+         order = "hclust",       
+         addCoef.col = "orange", 
+         number.cex = 1,       
+         tl.col = "black",      
+         tl.srt = 45)  
+```
+
+```{r}
+ggplot(loan, aes(x=loan_intent, y=loan_amnt, fill=loan_status)) + geom_col()
+```
+
+> Medical loans are showing better approval rates compare to others, this might be important factor on guessing the outcome.
+
+## Model Fitting and Data Partitioning
+
+> We will split our data into train and test, but first lets fit the logistic regression using all the variables to our entire dataset to get a sense of the variables weight on prediction outcomes.
+
+### Logistic Regression
+
+```{r}
+log_model <- glm(loan_status ~ ., data = loan, family = binomial)
+summary(log_model)
+```
+
+```{r}
+actual_labels <- ifelse(loan$loan_status == 1, "approved", "denied")
+```
+
+```{r}
+log_probs <- predict(log_model, type="response")
+
+pred_labels <- ifelse(log_probs >0.5, "approved","denied")
+
+conf_matrix <- table(pred_labels, actual_labels)
+
+table(pred_labels, actual_labels)
+```
+
+```{r}
+logistic_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Logistic Model Accuracy:", round(logistic_accuracy, 4)))
+```
+
+```{r}
+log2_model <- glm(loan_status ~ person_age + person_gender + person_education + log(person_income) + 
+                     person_home_ownership + loan_amnt + loan_intent + loan_int_rate + 
+                    loan_percent_income + cb_person_cred_hist_length + credit_score + previous_loan_defaults_on_file,
+                  data = loan,
+                  family = binomial)                    
+```
+
+```{r}
+log2_probs <- predict(log2_model, type="response")
+
+pred2_labels <- ifelse(log2_probs >0.5, "approved","denied")
+
+conf_matrix2 <- table(pred2_labels, actual_labels)
+
+table(pred2_labels, actual_labels)
+```
+
+```{r}
+logistic2_accuracy <- sum(diag(conf_matrix2)) / sum(conf_matrix2)
+print(paste("Logistic Model 2 Accuracy:", round(logistic2_accuracy, 4)))
+```
+
+```{r}
+set.seed(210)
+
+train_data <- sample(nrow(loan), nrow(loan) * 0.8) 
+
+train_size <- loan[train_data, ]
+test_size <- loan[-train_data, ]
+
+dim(train_size)
+dim(test_size)
+```
+
+### Tree Model
+
+```{r}
+library(tree)
+```
+
+```{r}
+tree_model <- tree(loan_status ~ ., data = train_size)
+summary(tree_model)
+```
+
+```{r, fig.width=8, fig.height=8}
+plot(tree_model)
+text(tree_model, pretty = 0, cex = 0.7)
+```
+
+> The tree starts with previous loan defaults, which is the most important variable. If a person has a previous loan default, the model predicts `loan_status = 0`. If they have no previous default, the tree moves to the next factor, **loan percent income**, with a cutoff of **24.5%**.
+
+> For people with no previous default and a loan percent **income below 24.5%**, the tree looks at the loan interest rate. An interest rate of **13.995%** or higher leads to a prediction of `1`. If the interest rate is below 13.995%, the model then considers person income, using **\$24,598.50** as the cutoff.
+
+> Overall, the tree shows that previous loan history, loan burden relative to income, interest rate, income, and home ownership are the main factors used to predict loan status. The model gives the most importance to previous loan defaults, while the other variables provide additional decision points for borrowers who have no previous defaults.
+
+```{r}
+pred_tree <- predict(tree_model, newdata = test_size, type = "class")
+
+conf_matrix_tree <- table(Predicted = pred_tree, Actual = test_size$loan_status)
+
+conf_matrix_tree
+```
+
+```{r}
+accuracy_tree <- mean(pred_tree == test_size$loan_status)
+
+cat("Test Accuracy:", accuracy_tree, "\n")
+```
+
+```{r}
+cv_tree <- cv.tree(tree_model)
+
+plot(cv_tree$size, cv_tree$dev, type = "b", xlab = "Tree Size", ylab = "Deviance")
+```
+
+```{r}
+best_size <- cv_tree$size[which.min(cv_tree$dev)]
+cat("Optimal Tree Size determined by CV:", best_size, "\n")
+```
+
+> This results further confirms that our standard tree model utilized best size on its branches.
+
+### Naive Bayes
+
+```{r, message=FALSE}
+library(e1071)
+library(caTools)
+library(caret)
+```
+
+```{r}
+nb_model <- naiveBayes(loan_status ~., data=train_size)
+nb_model
+```
+
+> The biggest factors driving denials are financial strain and housing status in our Naive Bayes Model.
+
+> Surprisingly, demographics and credit scores barely matter in this model. Age, gender, education, and credit scores (averaging around 632 for both groups) look almost identical across approved and denied applicants. To make accurate predictions, the model relies heavily on income, loan amount, interest rates, and homeownership rather than basic applicant backgrounds.
+
+```{r}
+nb_preds <- predict(nb_model, newdata = test_size)
+
+conf_matrix_nb <- table(Predicted = nb_preds, Actual = test_size$loan_status)
+
+conf_matrix_nb
+```
+
+```{r}
+accuracy_nb <- sum(diag(conf_matrix_nb)) / sum(conf_matrix_nb)
+
+# Print accuracy as a percentage
+print(paste("Accuracy:", round(accuracy_nb * 100, 2), "%"))
+```
+
+### Support Vector Machines (SVMs)
+
+```{r, message=FALSE}
+library(caret)
+library(kernlab)
+
+control <- trainControl(method = "none") # i didnt want to do cv since dataset is large but I might try on eventually.
+
+# (method = "cv", number = 5)
+# tuning_grid <- expand.grid(degree = c(1, 2, 3), scale = c(0.1, 1), C = c(0.1, 1, 10)) 
+
+# Well I tried running parameters above but the model run time will reach to hours or even days. So this options could be added if there is better computational power is available
+
+svm_model_rad <- train(loan_status ~ ., 
+                   data = train_size, method = "svmRadial", trControl = control)
+
+svm_preds_rad <- predict(svm_model_rad, newdata = test_size)
+
+confusionMatrix(svm_preds_rad, test_size$loan_status)
+```
+
+```{r}
+svm_rad_results <- confusionMatrix(svm_preds_rad, test_size$loan_status)
+svm_rad_accuracy <- svm_rad_results$overall["Accuracy"]
+print(paste("Radial SVM Accuracy:", round(svm_rad_accuracy, 4)))
+```
+
+### Random Forest
+
+```{r}
+library(randomForest)
+
+set.seed(210) 
+rforest_model <- randomForest(loan_status ~ .,
+                         data = train_size,
+                         ntree = 600,
+                         mtry = 2,
+                         importance = TRUE)
+
+rf_preds <- predict(rforest_model, newdata = test_size, type = "response")
+
+rf_matrix <- table(Predicted = rf_preds, Actual = test_size$loan_status)
+print(rf_matrix)
+```
+
+```{r}
+rf_accuracy <- sum(diag(rf_matrix)) / sum(rf_matrix)
+print(paste("Overall Accuracy:", round(rf_accuracy, 4)))
+```
+
+### Extreme Gradient Boosting (XGBoost)
+
+```{r}
+library(xgboost)
+```
+
+
+> first I need to prepare the data for XGBoost
+
+```{r}
+X_train <- model.matrix(loan_status ~ ., data = train_size)[, -1]
+X_test  <- model.matrix(loan_status ~ ., data = test_size)[, -1]
+
+y_train <- as.numeric(as.character(train_size$loan_status))
+y_test  <- as.numeric(as.character(test_size$loan_status))
+
+dtrain <- xgb.DMatrix(data = X_train, label = y_train)
+dtest  <- xgb.DMatrix(data = X_test, label = y_test)
+```
+
+
+```{r, warning=FALSE}
+params <- list(objective = "reg:logistic",
+               max.depth = 4, 
+               eta       = 0.1
+               )
+
+xgb_model <- xgb.train(params  = params, 
+                        data    = dtrain, 
+                        nrounds = 50, 
+                        verbose = 0)
+```
+
+```{r}
+xgb_probs <- predict(xgb_model, newdata = X_test)
+xgb_preds <- ifelse(xgb_probs > 0.5, 1, 0)
+
+xgb_matrix <- table(Predicted = xgb_preds, Actual = y_test)
+print(xgb_matrix)
+```
+```{r}
+xgb_accuracy <- sum(diag(xgb_matrix)) / sum(xgb_matrix)
+print(xgb_accuracy)
+```
+## Model Comparison
+
+```{r}
+model_comparison <- data.frame(
+  Model = c(
+    "Logistic Regression", 
+    " Tree Model", 
+    "Naiive Bayes", 
+    "SVMs Model", 
+    "Random Forest", 
+    "XGBoost"
+    ),
+  Accuracy = c(
+    logistic_accuracy,         
+    accuracy_tree,
+    accuracy_nb,
+    svm_rad_accuracy,
+    rf_accuracy,
+    xgb_accuracy
+    )
+  )
+```
+
+```{r, warning=FALSE}
+library(DT)
+
+datatable(
+  model_comparison,
+  colnames = c("Model Type", "Prediction Accuracy"), 
+  rownames = FALSE,                              
+  options = list(
+    pageLength = 6,                                
+    dom = 't',                                   
+    columnDefs = list(list(className = 'dt-center', targets = 0:1)) 
+  )
+) %>% 
+  formatPercentage('Accuracy', digits = 2) 
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+model_comparison <- model_comparison %>%
+  mutate(Model = reorder(Model, Accuracy))
+
+
+ggplot(model_comparison, aes(x = Model, y = Accuracy, fill = Accuracy)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+    geom_text(aes(label = paste0(round(Accuracy * 100, 1), "%")), 
+            hjust = -0.15, size = 4, fontface = "bold", color = "grey20") +
+  coord_flip() +
+  scale_fill_gradient(low = "#74a9cf", high = "#0570b0") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), 
+                     expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Model Accuracy Comparison",
+    subtitle = "Predicting loan approval odds across six different machine learning algorithms",
+    x = NULL,
+    y = "Accuracy Score"
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, color = "#2c3e50"),
+     plot.subtitle = element_text(size = 11, color = "#C01D0C", margin = ggplot2::margin(b = 15)),
+    axis.text.y = element_text(face = "bold", color = "#34495e"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+```
+## Model Selection and Final Take
+
+> My winning model is Random Forest with impressive accuracy of **92.7%**. This means that my model predict whether person get approve or denied 92.7% of the time. 
